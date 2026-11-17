@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
+import { configureApp } from './app.setup.js';
 import { type AppEnv, staticAwsKeysPresent } from './config/env.validation.js';
 
 async function bootstrap() {
@@ -10,10 +11,8 @@ async function bootstrap() {
   const config = app.get<ConfigService<AppEnv, true>>(ConfigService);
   const logger = new Logger('Bootstrap');
 
-  // All routes live under /api; the Vite dev server proxies /api to this backend,
-  // so the browser only ever talks to one origin.
-  app.setGlobalPrefix('api');
-  app.disable('x-powered-by');
+  // /api prefix, sessions, trust proxy, no-store headers.
+  configureApp(app);
   app.enableShutdownHooks();
 
   if (staticAwsKeysPresent(process.env)) {
@@ -21,6 +20,9 @@ async function bootstrap() {
       'Static AWS access keys were found in the environment. They override AWS_PROFILE in the SDK ' +
         'credential chain. Prefer AWS_PROFILE for local development. (Values are not logged.)',
     );
+  }
+  if (config.get('NODE_ENV', { infer: true }) === 'production' && !config.get('COOKIE_SECURE', { infer: true })) {
+    logger.warn('COOKIE_SECURE=false in production: session cookies would be sent over plain HTTP.');
   }
 
   const port = config.get('BACKEND_PORT', { infer: true });

@@ -23,6 +23,9 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: apiTarget,
           changeOrigin: false,
+          // Append the real client address to X-Forwarded-For. The backend trusts
+          // exactly this one loopback hop (see backend/src/app.setup.ts).
+          xfwd: true,
         },
       },
     },

@@ -2,6 +2,7 @@
 node_modules/
 dist/
 dist-ssr/
+dist-cli/
 coverage/
 *.tsbuildinfo
 
@@ -19,8 +20,11 @@ npm-debug.log*
 *.key
 .aws/
 
-# Local runtime data (metadata store, added in a later step)
+# Local runtime data: SQLite DB (sessions, login counters, metadata) and password hashes
 backend/data/
+*.db
+*.db-wal
+*.db-shm
 
 # Editors / OS
 .vscode/*

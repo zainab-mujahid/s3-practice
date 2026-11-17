@@ -8,7 +8,43 @@ const valid = {
   AWS_PROFILE: 's3-practice',
   S3_PUBLIC_BUCKET: 'my-restaurant-public-images',
   S3_PRIVATE_BUCKET: 'my-restaurant-private-images',
+  // Random-looking test value (not a real secret).
+  SESSION_SECRET: 'kq2Vt8sLw0Rr4nXb7Yp1Zc9Hf3Jd6Me5Ga8Tu2Ni4Qo',
 };
+
+describe('validateEnv — session settings', () => {
+  it('applies session defaults', () => {
+    const env = validateEnv(valid);
+    expect(env.COOKIE_SECURE).toBe(false);
+    expect(env.SESSION_IDLE_TIMEOUT_SECONDS).toBe(1800);
+    expect(env.SESSION_ABSOLUTE_TIMEOUT_SECONDS).toBe(28_800);
+  });
+
+  it('parses COOKIE_SECURE=true', () => {
+    expect(validateEnv({ ...valid, COOKIE_SECURE: 'TRUE' }).COOKIE_SECURE).toBe(true);
+  });
+
+  it.each([
+    [{ SESSION_SECRET: undefined }, /SESSION_SECRET is required.*setup:accounts/],
+    [{ SESSION_SECRET: 'too-short' }, /at least 32/],
+    [{ SESSION_SECRET: 'replace-me-with-a-long-random-session-secret' }, /placeholder/],
+    [{ COOKIE_SECURE: 'yes' }, /COOKIE_SECURE/],
+    [{ SESSION_IDLE_TIMEOUT_SECONDS: '0' }, /SESSION_IDLE_TIMEOUT_SECONDS/],
+    [{ SESSION_IDLE_TIMEOUT_SECONDS: '600', SESSION_ABSOLUTE_TIMEOUT_SECONDS: '60' }, /greater than or equal/],
+  ])('rejects %o', (override, message) => {
+    expect(() => validateEnv({ ...valid, ...override })).toThrow(message);
+  });
+
+  it('never echoes the session secret in errors', () => {
+    const secret = 'placeholder-' + 'Zx9'.repeat(12);
+    expect(() => validateEnv({ ...valid, SESSION_SECRET: secret })).toThrow();
+    try {
+      validateEnv({ ...valid, SESSION_SECRET: secret });
+    } catch (e) {
+      expect((e as Error).message).not.toContain(secret);
+    }
+  });
+});
 
 describe('validateEnv', () => {
   it('accepts a valid configuration and returns typed values', () => {
