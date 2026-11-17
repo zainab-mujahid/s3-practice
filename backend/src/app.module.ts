@@ -8,6 +8,7 @@ import { HealthModule } from './health/health.module.js';
 import { DEFAULT_ENV_FILE } from './paths.js';
 import { PersistenceModule } from './persistence/persistence.module.js';
 import { StaffModule } from './staff/staff.module.js';
+import { StorageModule } from './storage/storage.module.js';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { StaffModule } from './staff/staff.module.js';
     PersistenceModule,
     AuthModule,
     StaffModule,
+    StorageModule,
     HealthModule,
   ],
   providers: [

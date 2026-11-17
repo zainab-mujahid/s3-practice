@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useState } from 'react'
 import { fetchProfile, fetchStaffList, type Profile, type StaffRecord, type User } from '../api/auth'
 import { ApiError } from '../api/client'
 import { AccessChecks } from './AccessChecks'
+import { StorageHealthCard } from './StorageHealthCard'
 import { Alert, Card, Placeholder, RoleBadge, Spinner } from './ui'
 
 type Load<T> = { state: 'loading' } | { state: 'ready'; data: T } | { state: 'error'; message: string }
@@ -91,6 +92,7 @@ export function OwnerDashboard({ onUnauthorized }: { user: User; onUnauthorized:
         <Card title="Restaurant images">
           <Placeholder step="Step 4">Upload, replace and delete the logo and dish photos (public bucket).</Placeholder>
         </Card>
+        <StorageHealthCard onUnauthorized={onUnauthorized} />
       </div>
       <AccessChecks
         title="Owner access checks"
@@ -133,6 +135,7 @@ export function StaffDashboard({ user, onUnauthorized }: { user: User; onUnautho
           { label: `Another staff member (${other})`, path: `/staff/${other}`, expected: 403 },
           { label: 'List all staff (Owner only)', path: '/staff', expected: 403 },
           { label: 'Unknown staff ID', path: '/staff/staff-999', expected: 403 },
+          { label: 'S3 health check (Owner only)', path: '/admin/storage/health', expected: 403 },
         ]}
       />
     </div>

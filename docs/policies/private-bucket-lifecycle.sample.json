@@ -1,0 +1,11 @@
+{
+  "Rules": [
+    {
+      "ID": "expire-unverified-staging-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "staging/staff/" },
+      "Expiration": { "Days": 1 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}

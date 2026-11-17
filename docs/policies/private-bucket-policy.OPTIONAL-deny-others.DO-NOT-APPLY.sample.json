@@ -1,0 +1,36 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyInsecureTransport",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": ["arn:aws:s3:::<PRIVATE_BUCKET>", "arn:aws:s3:::<PRIVATE_BUCKET>/*"],
+      "Condition": { "Bool": { "aws:SecureTransport": "false" } }
+    },
+    {
+      "Sid": "DenySignaturesOlderThan10Minutes",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": ["arn:aws:s3:::<PRIVATE_BUCKET>", "arn:aws:s3:::<PRIVATE_BUCKET>/*"],
+      "Condition": { "NumericGreaterThan": { "s3:signatureAge": "600000" } }
+    },
+    {
+      "Sid": "DenyEveryoneExceptBackendAndAdmin",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": ["arn:aws:s3:::<PRIVATE_BUCKET>", "arn:aws:s3:::<PRIVATE_BUCKET>/*"],
+      "Condition": {
+        "ArnNotEquals": {
+          "aws:PrincipalArn": [
+            "arn:aws:iam::<ACCOUNT_ID>:user/<BACKEND_IAM_USER>",
+            "<YOUR_ADMIN_PRINCIPAL_ARN>"
+          ]
+        }
+      }
+    }
+  ]
+}

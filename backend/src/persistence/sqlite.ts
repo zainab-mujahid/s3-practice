@@ -5,8 +5,8 @@
  * backend process. It is not a shared, replicated or encrypted store and is not
  * suitable for production / multi-instance deployments.
  *
- * Holds: sessions, destroyed-session tombstones, failed-login counters.
- * (Later steps add the image metadata store.)
+ * Holds: sessions, destroyed-session tombstones, failed-login counters (v1) and
+ * image metadata: active images, upload intents, pending S3 deletions (v2).
  */
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -41,6 +41,61 @@ const MIGRATIONS: readonly string[] = [
     locked_until      INTEGER,
     PRIMARY KEY (username, ip)
   ) STRICT;
+  `,
+  // v2 — image metadata (see storage/image-metadata.store.ts)
+  `
+  -- Active images only. A row exists only after its object was verified and
+  -- promoted, so a failed/invalid upload can never become active.
+  CREATE TABLE image_assets (
+    asset_id     TEXT PRIMARY KEY,   -- stable ID (a dish keeps it across image replacements)
+    kind         TEXT NOT NULL CHECK (kind IN ('DISH', 'LOGO', 'STAFF')),
+    staff_id     TEXT,
+    bucket_alias TEXT NOT NULL CHECK (bucket_alias IN ('PUBLIC', 'PRIVATE')),
+    object_key   TEXT NOT NULL UNIQUE,
+    content_type TEXT NOT NULL,
+    size_bytes   INTEGER NOT NULL CHECK (size_bytes > 0),
+    created_by   TEXT NOT NULL,
+    created_at   INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL,
+    CHECK ((kind = 'STAFF') = (bucket_alias = 'PRIVATE')),
+    CHECK ((kind = 'STAFF') = (staff_id IS NOT NULL))
+  ) STRICT;
+  CREATE UNIQUE INDEX ux_assets_one_logo  ON image_assets(kind)     WHERE kind = 'LOGO';
+  CREATE UNIQUE INDEX ux_assets_one_staff ON image_assets(staff_id) WHERE kind = 'STAFF';
+
+  -- One row per issued upload URL: who may complete it, for what target, until when.
+  CREATE TABLE upload_intents (
+    upload_id       TEXT PRIMARY KEY,
+    kind            TEXT NOT NULL CHECK (kind IN ('DISH', 'LOGO', 'STAFF')),
+    bucket_alias    TEXT NOT NULL CHECK (bucket_alias IN ('PUBLIC', 'PRIVATE')),
+    staging_key     TEXT NOT NULL UNIQUE,
+    user_id         TEXT NOT NULL,
+    staff_id        TEXT,
+    target_asset_id TEXT,            -- dish being replaced; NULL = new dish / logo / staff picture
+    declared_type   TEXT NOT NULL,
+    declared_size   INTEGER NOT NULL,
+    status          TEXT NOT NULL CHECK (status IN ('PENDING', 'COMPLETED', 'REJECTED', 'EXPIRED')),
+    reject_reason   TEXT,
+    created_at      INTEGER NOT NULL,
+    expires_at      INTEGER NOT NULL,
+    finished_at     INTEGER,
+    CHECK ((kind = 'STAFF') = (bucket_alias = 'PRIVATE')),
+    CHECK ((kind = 'STAFF') = (staff_id IS NOT NULL))
+  ) STRICT;
+  CREATE INDEX idx_intents_status_expires ON upload_intents(status, expires_at);
+
+  -- S3 objects that must be deleted (replaced images, rejected/promoted staging
+  -- objects) but whose deletion failed or has not happened yet. Retried later.
+  CREATE TABLE pending_deletions (
+    bucket_alias    TEXT NOT NULL CHECK (bucket_alias IN ('PUBLIC', 'PRIVATE')),
+    object_key      TEXT NOT NULL,
+    reason          TEXT NOT NULL,
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL,
+    created_at      INTEGER NOT NULL,
+    PRIMARY KEY (bucket_alias, object_key)
+  ) STRICT;
+  CREATE INDEX idx_pending_deletions_next ON pending_deletions(next_attempt_at);
   `,
 ];
 

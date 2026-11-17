@@ -80,11 +80,24 @@ describe('validateEnv', () => {
     ['AWS_REGION', 'US_EAST', /AWS_REGION/],
     ['AWS_PROFILE', 'bad profile;rm', /AWS_PROFILE/],
     ['S3_PUBLIC_BUCKET', 'Has_Upper', /S3_PUBLIC_BUCKET/],
-    ['S3_PUBLIC_BUCKET', '192.168.1.1', /IP address/],
+    ['S3_PUBLIC_BUCKET', '192.168.1.1', /must not contain "\."/],
     ['S3_PRIVATE_BUCKET', 'a..b', /S3_PRIVATE_BUCKET/],
+    ['S3_PUBLIC_BUCKET', 'my.restaurant.images', /must not contain "\."/],
+    ['S3_PUBLIC_BUCKET', 'xn--images', /reserved prefix/],
+    ['S3_PRIVATE_BUCKET', 'images-s3alias', /reserved suffix/],
+    ['S3_PRIVATE_BUCKET', '-leading-dash', /S3_PRIVATE_BUCKET/],
+    ['AWS_EXPECTED_BUCKET_OWNER', '1234', /12-digit/],
+    ['AWS_EXPECTED_BUCKET_OWNER', 'arn:aws:iam::123456789012:root', /12-digit/],
     ['NODE_ENV', 'staging', /NODE_ENV/],
   ])('rejects invalid %s=%s', (key, value, message) => {
     expect(() => validateEnv({ ...valid, [key]: value })).toThrow(message);
+  });
+
+  it('accepts an optional 12-digit AWS_EXPECTED_BUCKET_OWNER', () => {
+    expect(validateEnv(valid).AWS_EXPECTED_BUCKET_OWNER).toBeUndefined();
+    expect(validateEnv({ ...valid, AWS_EXPECTED_BUCKET_OWNER: '123456789012' }).AWS_EXPECTED_BUCKET_OWNER).toBe(
+      '123456789012',
+    );
   });
 
   it('requires FRONTEND_URL, AWS_REGION and both buckets', () => {

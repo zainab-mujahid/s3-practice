@@ -17,13 +17,15 @@ React (Vite, :5173) ──/api proxy──► NestJS (:3000) ──AWS SDK v3─
 ```
 backend/    NestJS API (ESM, Vitest, oxlint)
 frontend/   React + Vite + TypeScript + Tailwind CSS v4
-docs/       AWS setup guide, sample policies, testing checklist (later steps)
+docs/       AWS setup guide, policy review, sample policies (docs/policies), security notes
 ```
 
 ## Prerequisites
 
 - Node.js 24+ and npm 11+
-- (From Step 4) An AWS CLI profile configured by you, plus the two buckets
+- For real S3 access: the two buckets, an IAM user and a local AWS CLI profile you set up
+  yourself by following [`docs/aws-setup.md`](docs/aws-setup.md). Until then the app runs
+  with placeholder bucket names and makes no AWS calls.
 
 ## First-time setup (Windows, PowerShell or Git Bash)
 
@@ -85,6 +87,24 @@ their failed-login counters, and leaves all other users signed in.
 - See [`docs/security-notes.md`](docs/security-notes.md) for the design and its
   local-only limitations.
 
+## S3 storage foundation (Step 3)
+
+- `backend/src/storage/` contains:
+  - one S3 client, using the AWS SDK v3 default credential chain via `AWS_PROFILE`;
+  - a key allow-list checked before every S3 call;
+  - file-type checks and post-upload verification;
+  - the staging → verify → promote flow;
+  - a SQLite metadata store for the active logo, dishes, staff pictures, upload intents and pending deletions.
+- There are no upload, replace, delete or presigned-URL endpoints yet. They come in Steps 4 and 5.
+- `GET /api/admin/storage/health` is Owner-only and read-only. It makes one
+  prefix-scoped `ListObjectsV2` call per bucket. On the Owner dashboard, use **Check S3 connection**.
+- Docs:
+  - AWS setup: [`docs/aws-setup.md`](docs/aws-setup.md)
+  - least-privilege review: [`docs/policy-review.md`](docs/policy-review.md)
+  - sample policies: `docs/policies/`
+- All automated tests mock S3 with `aws-sdk-client-mock`. With `NODE_ENV=test`, the S3 client
+  uses fake keys and an unroutable endpoint, so tests can never reach AWS.
+
 ## Run locally
 
 Two terminals:
@@ -115,5 +135,7 @@ cd frontend && npm run lint && npm run build
 - `backend/.env` and any `.env.*` / `*.local` files are git-ignored; only `.env.example` files are committed.
 - `backend/data/` (SQLite DB with sessions/login counters, `accounts.json` with password hashes) is git-ignored.
 - Plaintext passwords are never written to any file, log or source code.
-- No AWS access keys in `.env`: the backend uses the AWS SDK default credential chain (`AWS_PROFILE`).
+- No AWS access keys in `.env`: the backend uses the AWS SDK default credential chain (`AWS_PROFILE`),
+  and the key of the dedicated IAM user lives only in `~/.aws/credentials`.
+- AWS credentials, bucket names and AWS error messages are never sent to the browser or logged.
 - Nothing under `frontend/src` may contain secrets — it is shipped to the browser.

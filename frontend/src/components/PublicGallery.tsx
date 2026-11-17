@@ -21,6 +21,7 @@ export function PublicGallery({ showVisitorChecks }: { showVisitorChecks: boolea
             { label: 'My profile (requires login)', path: '/profile/me', expected: 401 },
             { label: 'Staff list (Owner only)', path: '/staff', expected: 401 },
             { label: 'A staff record', path: '/staff/staff-001', expected: 401 },
+            { label: 'S3 health check (Owner only)', path: '/admin/storage/health', expected: 401 },
           ]}
         />
       )}

@@ -32,7 +32,7 @@ afterEach(() => {
 describe('SqliteSessionStore', () => {
   it('round-trips a session', async () => {
     await call((cb) => store.set('sid-1', sess({ userId: 'staff-001', csrfToken: 't' }), cb));
-    const got = await call<SessionData>((cb) => store.get('sid-1', cb));
+    const got = await call<SessionData | null>((cb) => store.get('sid-1', cb));
     expect(got?.userId).toBe('staff-001');
     expect(got?.csrfToken).toBe('t');
   });

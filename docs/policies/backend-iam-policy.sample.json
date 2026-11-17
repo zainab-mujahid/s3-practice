@@ -1,0 +1,41 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicBucketStagingUploads",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::<PUBLIC_BUCKET>/staging/*"
+    },
+    {
+      "Sid": "PublicBucketPromoteAndDeleteImages",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:DeleteObject"],
+      "Resource": ["arn:aws:s3:::<PUBLIC_BUCKET>/dishes/*", "arn:aws:s3:::<PUBLIC_BUCKET>/logo/*"]
+    },
+    {
+      "Sid": "PublicBucketListAllowedPrefixesOnly",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::<PUBLIC_BUCKET>",
+      "Condition": {
+        "StringLike": { "s3:prefix": ["dishes/*", "logo/*", "staging/*"] }
+      }
+    },
+    {
+      "Sid": "PrivateBucketStaffPictures",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": ["arn:aws:s3:::<PRIVATE_BUCKET>/staging/staff/*", "arn:aws:s3:::<PRIVATE_BUCKET>/staff/*"]
+    },
+    {
+      "Sid": "PrivateBucketListAllowedPrefixesOnly",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::<PRIVATE_BUCKET>",
+      "Condition": {
+        "StringLike": { "s3:prefix": ["staff/*", "staging/staff/*"] }
+      }
+    }
+  ]
+}

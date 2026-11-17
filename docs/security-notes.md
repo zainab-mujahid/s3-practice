@@ -71,6 +71,41 @@ right-most `X-Forwarded-For` entry, and that is the only entry used.
 Client-supplied `X-Forwarded-For` values are ignored. (Tested through Vite: a
 spoofed `X-Forwarded-For: 6.6.6.6` is logged as `::1`.)
 
+## S3 storage foundation (Step 3)
+
+See [`aws-setup.md`](aws-setup.md) (manual setup) and
+[`policy-review.md`](policy-review.md) (least-privilege review of every setting
+and statement).
+
+- **One AWS identity.** The backend uses one dedicated IAM user through the SDK
+  default credential chain (`AWS_PROFILE` → `~/.aws/credentials`). The app's
+  Owner, Staff and Visitor users are not AWS identities. Credentials are never in
+  code, `.env`, logs or responses.
+- **Buckets by alias.** Code and responses say `PUBLIC` / `PRIVATE`; bucket
+  names stay in the backend config.
+- **Key allow-list** (`storage/storage-locations.ts`):
+  - Every S3 call validates the bucket alias and the exact key shape before the SDK runs.
+  - Keys are server-generated UUIDs, so client file names are never used.
+- **Verification on the stored bytes** (`storage/object-verifier.ts`):
+  - size between 32 B and 5 MB;
+  - JPEG/PNG/WebP signature;
+  - end-of-file/container check;
+  - detected format = declared format = stored Content-Type.
+  - The byte reads are pinned to the HEAD ETag.
+  - **This is basic file-type verification, not image validation**
+    (`storage/magic-bytes.ts` lists what it does not catch).
+- **Staging → verify → promote** (`storage/object-promoter.ts`):
+  - A server-side copy, pinned with `CopySourceIfMatch`, moves the object to a new final key.
+  - The metadata switch and the queuing of the old key happen in one SQLite transaction.
+  - The old object is deleted only after that transaction. Failed deletions are retried with backoff.
+  - Invalid uploads are rejected and their staging objects deleted, so they never become active.
+- **Storage health check** (`GET /api/admin/storage/health`):
+  - Owner only, rate limited to 10/min, read-only.
+  - Returns status words only, never names, ARNs or account IDs.
+  - Makes no AWS call while bucket names are placeholders.
+- **Tests never reach AWS.** S3 is mocked (`aws-sdk-client-mock`). With
+  `NODE_ENV=test` the client has fake keys and the endpoint `127.0.0.1:9`.
+
 ## Known limitations (acceptable locally, not in production)
 
 1. **Single process, single file.** The SQLite session store cannot be shared
@@ -93,3 +128,16 @@ spoofed `X-Forwarded-For: 6.6.6.6` is logged as `::1`.)
    `COOKIE_SECURE=true`.
 7. **File permissions.** `accounts.json` is created with mode 0600, which
    Windows ignores. Protect your user profile and disk.
+8. **Long-lived AWS access key.** The backend IAM user has a static key in
+   `~/.aws/credentials`. Rotate it, and delete it when you're done. Production would use
+   short-lived role credentials (IAM Identity Center, or an instance/task role).
+9. **S3 and SQLite are not one transaction.** A crash between copying an object
+   and updating the metadata can leave an orphaned copy or a staging object.
+   Lifecycle rules expire `staging/` after 1 day, and queued deletions are retried, but an
+   orphaned *final* copy could remain until cleaned up by hand.
+10. **No content sanitisation.** Uploads are not re-encoded, and metadata
+    (e.g. EXIF GPS) is not stripped. Production would re-encode images in an
+    isolated worker or use a scanning service.
+11. **Per-staff isolation inside `staff/*` is enforced by the backend**, not by
+    IAM, because one backend identity serves every user. IAM still confines the
+    backend to the five allowed prefixes.
