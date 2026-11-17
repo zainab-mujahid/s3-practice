@@ -1,0 +1,30 @@
+# Dependencies and build output
+node_modules/
+dist/
+dist-ssr/
+coverage/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Local configuration and secrets — never commit
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+.aws/
+
+# Local runtime data (metadata store, added in a later step)
+backend/data/
+
+# Editors / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
