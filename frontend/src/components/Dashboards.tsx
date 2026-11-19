@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useState } from 'react'
 import { fetchProfile, fetchStaffList, type Profile, type StaffRecord, type User } from '../api/auth'
 import { ApiError } from '../api/client'
 import { AccessChecks } from './AccessChecks'
+import { OwnerImageManager } from './OwnerImageManager'
 import { StorageHealthCard } from './StorageHealthCard'
 import { Alert, Card, Placeholder, RoleBadge, Spinner } from './ui'
 
@@ -89,9 +90,7 @@ export function OwnerDashboard({ onUnauthorized }: { user: User; onUnauthorized:
             <Placeholder step="Step 5">Upload, replace, view and delete staff profile pictures (private bucket).</Placeholder>
           </div>
         </Card>
-        <Card title="Restaurant images">
-          <Placeholder step="Step 4">Upload, replace and delete the logo and dish photos (public bucket).</Placeholder>
-        </Card>
+        <OwnerImageManager onUnauthorized={onUnauthorized} />
         <StorageHealthCard onUnauthorized={onUnauthorized} />
       </div>
       <AccessChecks
@@ -103,6 +102,7 @@ export function OwnerDashboard({ onUnauthorized }: { user: User; onUnauthorized:
           { label: 'Staff B record', path: '/staff/staff-002', expected: 200 },
           { label: 'Unknown staff ID', path: '/staff/staff-999', expected: 404 },
           { label: 'Path traversal attempt', path: '/staff/..%2Fowner', expected: 400 },
+          { label: 'Published images (public)', path: '/public/images', expected: 200 },
         ]}
       />
     </div>
@@ -136,6 +136,7 @@ export function StaffDashboard({ user, onUnauthorized }: { user: User; onUnautho
           { label: 'List all staff (Owner only)', path: '/staff', expected: 403 },
           { label: 'Unknown staff ID', path: '/staff/staff-999', expected: 403 },
           { label: 'S3 health check (Owner only)', path: '/admin/storage/health', expected: 403 },
+          { label: 'Published images (public)', path: '/public/images', expected: 200 },
         ]}
       />
     </div>

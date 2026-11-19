@@ -95,7 +95,7 @@ their failed-login counters, and leaves all other users signed in.
   - file-type checks and post-upload verification;
   - the staging → verify → promote flow;
   - a SQLite metadata store for the active logo, dishes, staff pictures, upload intents and pending deletions.
-- There are no upload, replace, delete or presigned-URL endpoints yet. They come in Steps 4 and 5.
+- Upload/replace/delete endpoints use this pipeline from Step 4 on (public images; staff pictures follow in Step 5).
 - `GET /api/admin/storage/health` is Owner-only and read-only. It makes one
   prefix-scoped `ListObjectsV2` call per bucket. On the Owner dashboard, use **Check S3 connection**.
 - Docs:
@@ -104,6 +104,20 @@ their failed-login counters, and leaves all other users signed in.
   - sample policies: `docs/policies/`
 - All automated tests mock S3 with `aws-sdk-client-mock`. With `NODE_ENV=test`, the S3 client
   uses fake keys and an unroutable endpoint, so tests can never reach AWS.
+
+## Public restaurant images (Step 4)
+
+- The Owner uploads, replaces and deletes the restaurant logo and up to 50 dish images.
+  Everyone, including anonymous visitors, sees the published images.
+- Flow: React → NestJS (session, CSRF, OWNER) → presigned POST → browser uploads straight to
+  `staging/` in S3 → NestJS verifies the stored bytes → copies them to `logo/` or `dishes/` → SQLite.
+  Image bytes never pass through NestJS, and AWS secrets never reach the browser.
+- The presigned POST is pinned to one server-generated staging key, the exact Content-Type,
+  32 B–5 MiB, and expires after at most 300 s.
+- A failed replacement never removes the published image. The old object is deleted only after
+  the new one is active, and failed deletions are retried.
+- Endpoints, controls, recovery, limits and the manual live-check list:
+  [`docs/public-images.md`](docs/public-images.md).
 
 ## Run locally
 
@@ -127,7 +141,7 @@ backend are working.
 
 ```bash
 cd backend  && npm run lint && npm test && npm run test:e2e && npm run build
-cd frontend && npm run lint && npm run build
+cd frontend && npm run lint && npm test && npm run build
 ```
 
 ## Secrets
@@ -137,5 +151,8 @@ cd frontend && npm run lint && npm run build
 - Plaintext passwords are never written to any file, log or source code.
 - No AWS access keys in `.env`: the backend uses the AWS SDK default credential chain (`AWS_PROFILE`),
   and the key of the dedicated IAM user lives only in `~/.aws/credentials`.
-- AWS credentials, bucket names and AWS error messages are never sent to the browser or logged.
+- AWS credentials and AWS error messages are never sent to the browser or logged. The private bucket's
+  name never leaves the backend. The **public** bucket's name is part of every public image URL and of the
+  presigned POST URL; this is unavoidable without a CDN. Presigned POST fields contain the IAM
+  **access key ID** (never the secret), as every SigV4 presigned request does.
 - Nothing under `frontend/src` may contain secrets — it is shipped to the browser.

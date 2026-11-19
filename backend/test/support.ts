@@ -128,6 +128,13 @@ export class Client {
     return body ? req.send(body) : req;
   }
 
+  /** DELETE with Origin + CSRF token. */
+  delete(path: string) {
+    const req = this.agent.delete(`/api${path}`).set('X-Forwarded-For', this.ip).set('Origin', FRONTEND_ORIGIN);
+    if (this.csrfToken) req.set('X-CSRF-Token', this.csrfToken);
+    return req;
+  }
+
   async fetchCsrf() {
     const res = await this.get('/auth/csrf').expect(200);
     this.csrfToken = res.body.csrfToken;

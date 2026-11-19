@@ -15,7 +15,7 @@ import { StorageConfig } from './storage.config.js';
 import { InvalidObjectKeyError } from './storage-locations.js';
 
 const U = '0f8fad5b-d9cb-469f-a165-70867728950e';
-const env = { AWS_REGION: 'us-east-1', S3_PUBLIC_BUCKET: 'pub-bucket', S3_PRIVATE_BUCKET: 'priv-bucket', AWS_EXPECTED_BUCKET_OWNER: undefined };
+const env = { AWS_REGION: 'us-east-1', S3_PUBLIC_BUCKET: 'pub-bucket', S3_PRIVATE_BUCKET: 'priv-bucket', AWS_EXPECTED_BUCKET_OWNER: undefined as string | undefined };
 
 let client: S3Client;
 let s3: ReturnType<typeof mockClient>;
@@ -184,5 +184,75 @@ describe('S3StorageService — errors', () => {
     expect(inputs[0]).toEqual({ Bucket: 'pub-bucket', Prefix: 'dishes/', MaxKeys: 1 });
     expect(inputs[1]).toEqual({ Bucket: 'priv-bucket', Prefix: 'staff/', MaxKeys: 1 });
     expect(s3.calls().every((c) => c.args[0] instanceof ListObjectsV2Command)).toBe(true);
+  });
+});
+
+describe('S3StorageService.createPresignedPost (signed locally, no AWS request)', () => {
+  const key = `staging/${U}`;
+  const decodePolicy = (fields: Record<string, string>) =>
+    JSON.parse(Buffer.from(fields.Policy, 'base64').toString('utf8')) as { expiration: string; conditions: unknown[] };
+
+  it('pins bucket, exact key, exact Content-Type, size range and a <=300 s expiry', async () => {
+    const before = Date.now();
+    const post = await service().createPresignedPost({ bucket: 'PUBLIC', key, contentType: 'image/png', expiresInSeconds: 300 });
+    expect(s3.calls()).toHaveLength(0);
+    expect(post.fields.key).toBe(key);
+    expect(post.fields['Content-Type']).toBe('image/png');
+    expect(post.fields['X-Amz-Algorithm']).toBe('AWS4-HMAC-SHA256');
+
+    const policy = decodePolicy(post.fields);
+    expect(policy.conditions).toEqual(
+      expect.arrayContaining([
+        { bucket: 'pub-bucket' },
+        { key },
+        { 'Content-Type': 'image/png' },
+        ['content-length-range', 32, 5 * 1024 * 1024],
+      ]),
+    );
+    // No prefix-style key condition (would let the browser choose the key).
+    expect(JSON.stringify(policy.conditions)).not.toContain('starts-with');
+    const expiresAt = Date.parse(policy.expiration);
+    expect(expiresAt - before).toBeLessThanOrEqual(301_000);
+    expect(expiresAt - before).toBeGreaterThan(290_000);
+  });
+
+  it('accepts private staff staging keys too (Step 5), but not in the public bucket', async () => {
+    await expect(
+      service().createPresignedPost({ bucket: 'PRIVATE', key: `staging/staff/${U}`, contentType: 'image/jpeg', expiresInSeconds: 60 }),
+    ).resolves.toHaveProperty('fields.key', `staging/staff/${U}`);
+    await expect(
+      service().createPresignedPost({ bucket: 'PUBLIC', key: `staging/staff/${U}`, contentType: 'image/jpeg', expiresInSeconds: 60 }),
+    ).rejects.toBeInstanceOf(InvalidObjectKeyError);
+  });
+
+  it.each([`dishes/${U}.png`, `logo/${U}.png`, `staff/staff-001/${U}.png`, 'staging/', `staging/${U}/../x`, '${filename}'])(
+    'refuses a non-staging key: %s',
+    async (badKey) => {
+      await expect(
+        service().createPresignedPost({ bucket: 'PUBLIC', key: badKey, contentType: 'image/png', expiresInSeconds: 60 }),
+      ).rejects.toBeInstanceOf(InvalidObjectKeyError);
+    },
+  );
+
+  it.each([
+    ['expiry 0', { expiresInSeconds: 0 }],
+    ['expiry 301', { expiresInSeconds: 301 }],
+    ['expiry 7 days', { expiresInSeconds: 604800 }],
+    ['fractional expiry', { expiresInSeconds: 1.5 }],
+    ['svg', { contentType: 'image/svg+xml' }],
+    ['upper-case type', { contentType: 'IMAGE/PNG' }],
+    ['type with params', { contentType: 'image/png; charset=utf-8' }],
+    ['max above 5 MiB', { maxBytes: 5 * 1024 * 1024 + 1 }],
+    ['min below 32', { minBytes: 1 }],
+    ['min > max', { minBytes: 100, maxBytes: 99 }],
+  ])('rejects %s', async (_, override) => {
+    await expect(
+      service().createPresignedPost({ bucket: 'PUBLIC', key, contentType: 'image/png', expiresInSeconds: 60, ...override }),
+    ).rejects.toBeInstanceOf(RangeError);
+  });
+
+  it('never logs signed fields or the credential', async () => {
+    await service().createPresignedPost({ bucket: 'PUBLIC', key, contentType: 'image/webp', expiresInSeconds: 120 });
+    expect(logs.join('\n')).not.toMatch(/Policy|Signature|TEST-NOT-A-REAL|X-Amz/);
   });
 });

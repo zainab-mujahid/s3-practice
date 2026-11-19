@@ -74,7 +74,12 @@ Browser ──► NestJS (session + RBAC: who may do what to which image)
 | CORS | POST from `http://localhost:5173` only | Only for the upload response. Presigned GET in `<img>` needs no CORS |
 | Lifecycle | `staging/staff/` expires after 1 day | Same as public |
 
-## 4. Deny statements (both buckets)
+## 4. Deny statements (both buckets in the samples)
+
+> **Check your live policies.** The samples put both statements on both buckets. If your live
+> public bucket has only `DenyInsecureTransport` (or neither), uploads to it are still limited by the
+> **300 s expiration inside each signed POST policy**, enforced in code. The app does not rely on the
+> bucket-level `s3:signatureAge` Deny for the public bucket.
 
 - **`DenyInsecureTransport`**: denies every request made over plain HTTP. This is
   the standard AWS pattern.
@@ -109,7 +114,21 @@ Do not apply it unless you understand and accept that risk. It is not part of th
 - **The frontend's role checks.** Only the backend guards decide access.
 - **Magic-byte checks.** These are basic file-type verification only; see `backend/src/storage/magic-bytes.ts`.
 
-## 6. Application-side controls that complement IAM (Step 3 code)
+## 6. Step 4: permissions used by public-image uploads (no IAM change needed)
+
+| Operation | S3 permission evaluated | Granted by |
+|---|---|---|
+| Browser POST to `staging/{uuid}` (presigned) | `s3:PutObject` on `<PUBLIC>/staging/*`, as the backend user who signed it | `PublicBucketStagingUploads` |
+| Verify (HEAD + range GET) | `s3:GetObject` on `staging/*` (+ `s3:ListBucket` `staging/*` so a missing key is 404, not 403) | `PublicBucketStagingUploads`, `PublicBucketListAllowedPrefixesOnly` |
+| Promote (`CopyObject`, `MetadataDirective: REPLACE`, `CopySourceIfMatch`) | `s3:GetObject` on the source `staging/*` + `s3:PutObject` on the destination `dishes/*` or `logo/*` | both Put/Get statements above |
+| Delete staging / replaced / removed objects | `s3:DeleteObject` on `staging/*`, `dishes/*`, `logo/*` | existing statements |
+
+- No tagging, ACL or KMS permission is needed: copies set no tags or ACLs, and the bucket uses SSE-S3.
+- The signed POST policy pins bucket, exact key, exact Content-Type and 32 B–5 MiB, so the backend's
+  broad `staging/*` PutObject right is narrowed to one object per URL. See
+  [`public-images.md`](public-images.md).
+
+## 7. Application-side controls that complement IAM (Step 3 code)
 
 - **Buckets by alias only.** Bucket names never leave the backend: no API response, log line or error contains them.
 - **Key allow-list before every SDK call** (`storage-locations.ts`):

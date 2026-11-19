@@ -36,7 +36,7 @@ export class ObjectPromoter {
   ) {}
 
   /** Throws MetadataError for intent problems and StorageError for S3 outages; returns a verdict otherwise. */
-  async completeUpload(uploadId: string, userId: string): Promise<CompletionResult> {
+  async completeUpload(uploadId: string, userId: string, opts: { maxDishes?: number } = {}): Promise<CompletionResult> {
     const intent = this.metadata.requirePendingIntent(uploadId, userId);
     const expectedFormat = formatFromContentType(intent.declaredType);
     if (!expectedFormat) {
@@ -76,6 +76,7 @@ export class ObjectPromoter {
         finalKey,
         contentType: verdict.contentType,
         sizeBytes: verdict.size,
+        maxDishes: opts.maxDishes,
       });
     } catch (err) {
       // The copy is not referenced by anything: remove it, keep the old image active.

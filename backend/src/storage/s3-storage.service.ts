@@ -11,8 +11,8 @@
  * contain ARNs, account IDs or request IDs) are never logged or returned; only
  * the operation, bucket alias, key and AWS error *name* are logged.
  *
- * Step 3 scope: read/inspect/copy/delete/list helpers only. Presigned URL
- * generation is added in Steps 4 (POST) and 5 (POST + GET).
+ * Step 4 adds presigned POST generation for STAGING keys only. Presigned
+ * fields (Policy, signature, credential scope) are never logged.
  */
 import {
   CopyObjectCommand,
@@ -22,7 +22,9 @@ import {
   ListObjectsV2Command,
   type S3Client,
 } from '@aws-sdk/client-s3';
+import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { formatFromContentType, IMAGE_FORMATS, MAX_IMAGE_BYTES, MIN_IMAGE_BYTES, PRESIGNED_POST_TTL_SECONDS } from './image-rules.js';
 import { S3_CLIENT } from './s3-client.provider.js';
 import { StorageConfig } from './storage.config.js';
 import {
@@ -55,6 +57,12 @@ export interface ObjectInfo {
   size: number;
   contentType: string | undefined;
   etag: string;
+}
+
+/** What the browser needs to upload with a presigned POST: the form action URL and the form fields. */
+export interface PresignedUpload {
+  url: string;
+  fields: Record<string, string>;
 }
 
 export type BucketAccessStatus = 'ok' | 'denied' | 'bucket_not_found' | 'wrong_region' | 'no_credentials' | 'unavailable';
@@ -177,6 +185,47 @@ export class S3StorageService {
         }),
       );
     });
+  }
+
+  /**
+   * Presigned POST for ONE exact staging key. The signed policy pins:
+   *   - the bucket and the exact key (added by the SDK as {bucket} / {key} conditions),
+   *   - the exact Content-Type (sent as a form field, so the SDK adds an exact-match condition),
+   *   - content-length-range [minBytes, maxBytes] (within MIN_IMAGE_BYTES..MAX_IMAGE_BYTES),
+   *   - an expiration of at most PRESIGNED_POST_TTL_SECONDS.
+   * S3 rejects any form field not covered by a condition, so the browser cannot
+   * add ACLs, metadata or a different key. Final (public) keys are refused.
+   * Signing is local (no AWS request); nothing about the result is logged.
+   */
+  async createPresignedPost(input: {
+    bucket: BucketAlias;
+    key: string;
+    contentType: string;
+    expiresInSeconds: number;
+    minBytes?: number;
+    maxBytes?: number;
+  }): Promise<PresignedUpload> {
+    const { bucket, key, contentType, expiresInSeconds } = input;
+    const minBytes = input.minBytes ?? MIN_IMAGE_BYTES;
+    const maxBytes = input.maxBytes ?? MAX_IMAGE_BYTES;
+    assertAllowedKey(bucket, key, STAGING_AREAS);
+    const format = formatFromContentType(contentType);
+    if (!format || IMAGE_FORMATS[format].contentType !== contentType) throw new RangeError('content type not allowed');
+    if (!Number.isInteger(expiresInSeconds) || expiresInSeconds < 1 || expiresInSeconds > PRESIGNED_POST_TTL_SECONDS) {
+      throw new RangeError('presigned POST expiry out of bounds');
+    }
+    if (!Number.isInteger(minBytes) || !Number.isInteger(maxBytes) || minBytes < MIN_IMAGE_BYTES || maxBytes > MAX_IMAGE_BYTES || minBytes > maxBytes) {
+      throw new RangeError('content-length-range out of bounds');
+    }
+    return this.run('PresignPost', bucket, key, () =>
+      createPresignedPost(this.client, {
+        Bucket: this.config.bucketName(bucket),
+        Key: key,
+        Fields: { 'Content-Type': contentType },
+        Conditions: [['content-length-range', minBytes, maxBytes]],
+        Expires: expiresInSeconds,
+      }),
+    );
   }
 
   /** DeleteObject. Idempotent in S3: deleting a missing key succeeds. */

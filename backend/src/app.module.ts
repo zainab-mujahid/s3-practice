@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { validationExceptionFactory } from './auth/auth.schemas.js';
 import { validateEnv } from './config/env.validation.js';
 import { HealthModule } from './health/health.module.js';
+import { ImagesModule } from './images/images.module.js';
 import { DEFAULT_ENV_FILE } from './paths.js';
 import { PersistenceModule } from './persistence/persistence.module.js';
 import { StaffModule } from './staff/staff.module.js';
@@ -24,6 +25,7 @@ import { StorageModule } from './storage/storage.module.js';
     AuthModule,
     StaffModule,
     StorageModule,
+    ImagesModule,
     HealthModule,
   ],
   providers: [

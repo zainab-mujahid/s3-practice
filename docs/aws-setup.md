@@ -180,7 +180,9 @@ Restart the backend. It still makes **no** AWS call at startup.
 3. **Anonymous checks** (any browser or `curl`, no credentials):
    `https://<private>.s3.<region>.amazonaws.com/staff/` → **403 AccessDenied**;
    `https://<public>.s3.<region>.amazonaws.com/` (list) → **403**. Image URLs are
-   tested in Step 4 (T01, T02, T13, T22).
+   checked by the Step 4 manual live checks (T01, T02, T13, T22, T23, C1–C3) in
+   [`public-images.md`](public-images.md#manual-live-checks-require-separate-approval--they-write-to-real-s3).
+   They write to real S3, so run them only when you decide to.
 
 4. **Optional AWS CLI read-only checks** (run them yourself, `--profile` an admin
    profile; the backend user is intentionally not allowed to read bucket settings):

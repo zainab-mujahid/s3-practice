@@ -106,6 +106,32 @@ and statement).
 - **Tests never reach AWS.** S3 is mocked (`aws-sdk-client-mock`). With
   `NODE_ENV=test` the client has fake keys and the endpoint `127.0.0.1:9`.
 
+## Public restaurant images (Step 4)
+
+Full details: [`public-images.md`](public-images.md).
+
+- **Authorization.** Only OWNER may request uploads, complete them or delete images (global guards:
+  session → CSRF → `@Roles('OWNER')`). Listing is `@Public()` and reads only SQLite.
+- **No client-chosen storage locations.**
+  - Strict zod schemas reject unknown fields.
+  - Keys are server-generated UUIDs; IDs in paths must be UUIDs.
+  - Staff pictures are invisible to the public-image endpoints.
+- **Presigned POST**, one exact staging key per request:
+  - exact Content-Type;
+  - 32 B–5 MiB;
+  - expires in ≤ 300 s (enforced in code, independent of any bucket policy);
+  - never for final keys.
+- **Intents.**
+  - Bound to the user, the kind and the target dish.
+  - Abuse limits (10 pending, 50 dishes, 20 authorizations/min per IP) are checked inside SQLite transactions.
+  - Another user's intent answers exactly like a missing one (404).
+- **Publication.** Verify → `CopySourceIfMatch` → one SQLite transaction → delete the old object.
+  Failed replacements keep the published image. Duplicate or concurrent completions publish at most once,
+  enforced by SQLite conditional transitions, not only by the in-process guard.
+- **Maintenance** (every 5 min) expires abandoned intents, deletes only their staging objects, and retries
+  queued deletions. It never deletes a key that an active asset uses.
+- **Logging.** Presigned fields, URLs, signatures and AWS error text are never logged (asserted in the e2e tests).
+
 ## Known limitations (acceptable locally, not in production)
 
 1. **Single process, single file.** The SQLite session store cannot be shared
@@ -135,9 +161,16 @@ and statement).
    and updating the metadata can leave an orphaned copy or a staging object.
    Lifecycle rules expire `staging/` after 1 day, and queued deletions are retried, but an
    orphaned *final* copy could remain until cleaned up by hand.
-10. **No content sanitisation.** Uploads are not re-encoded, and metadata
+10. **Public bucket name and access key ID are visible.**
+    - Public image URLs and the presigned POST URL contain the public bucket's name.
+    - Presigned POST fields contain the IAM user's access key ID (not the secret).
+    - Production would serve images through a CDN and use short-lived role credentials.
+11. **Deleted images stay reachable until S3 confirms the delete.**
+    - If S3 is unavailable, a removed or replaced object stays publicly readable until the queued deletion succeeds.
+    - Anyone who saved the URL earlier can read it until then.
+12. **No content sanitisation.** Uploads are not re-encoded, and metadata
     (e.g. EXIF GPS) is not stripped. Production would re-encode images in an
     isolated worker or use a scanning service.
-11. **Per-staff isolation inside `staff/*` is enforced by the backend**, not by
+13. **Per-staff isolation inside `staff/*` is enforced by the backend**, not by
     IAM, because one backend identity serves every user. IAM still confines the
     backend to the five allowed prefixes.

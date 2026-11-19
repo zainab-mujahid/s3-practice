@@ -67,7 +67,9 @@ export type MetadataErrorCode =
   | 'INTENT_EXPIRED'
   | 'INTENT_WRONG_USER'
   | 'TARGET_NOT_FOUND'
-  | 'INVALID_INTENT';
+  | 'INVALID_INTENT'
+  | 'TOO_MANY_PENDING'
+  | 'DISH_LIMIT_REACHED';
 
 export class MetadataError extends Error {
   constructor(readonly code: MetadataErrorCode) {
@@ -154,6 +156,33 @@ export class ImageMetadataStore {
     return this.getIntent(uploadId)!;
   }
 
+  /**
+   * createIntent + abuse limits, atomically (BEGIN IMMEDIATE), so concurrent
+   * requests cannot both pass a count check and exceed the limit:
+   *   - at most `maxPendingPerUser` unexpired PENDING intents for this user;
+   *   - a new dish (no target) only while fewer than `maxDishes` dishes exist;
+   *   - a dish replacement only for an existing DISH asset.
+   */
+  createIntentWithinLimits(
+    input: Parameters<ImageMetadataStore['createIntent']>[0],
+    limits: { maxPendingPerUser: number; maxDishes?: number },
+  ): UploadIntent {
+    return transaction(this.db, () => {
+      const pending = this.db
+        .prepare(`SELECT COUNT(*) AS n FROM upload_intents WHERE user_id = ? AND status = 'PENDING' AND expires_at > ?`)
+        .get(input.userId, this.now()) as { n: number };
+      if (pending.n >= limits.maxPendingPerUser) throw new MetadataError('TOO_MANY_PENDING');
+      if (input.kind === 'DISH') {
+        if (input.targetAssetId) {
+          if (this.getAsset(input.targetAssetId)?.kind !== 'DISH') throw new MetadataError('TARGET_NOT_FOUND');
+        } else if (limits.maxDishes !== undefined && this.countDishes() >= limits.maxDishes) {
+          throw new MetadataError('DISH_LIMIT_REACHED');
+        }
+      }
+      return this.createIntent(input);
+    });
+  }
+
   getIntent(uploadId: string): UploadIntent | undefined {
     const row = this.db.prepare('SELECT * FROM upload_intents WHERE upload_id = ?').get(uploadId) as Row | undefined;
     return row ? toIntent(row) : undefined;
@@ -217,6 +246,16 @@ export class ImageMetadataStore {
     return row ? toAsset(row) : undefined;
   }
 
+  /** A DISH or LOGO asset (never a private STAFF picture). */
+  getPublicAsset(assetId: string): ImageAsset | undefined {
+    const asset = this.getAsset(assetId);
+    return asset && (asset.kind === 'DISH' || asset.kind === 'LOGO') ? asset : undefined;
+  }
+
+  countDishes(): number {
+    return (this.db.prepare(`SELECT COUNT(*) AS n FROM image_assets WHERE kind = 'DISH'`).get() as { n: number }).n;
+  }
+
   listDishes(): ImageAsset[] {
     return (this.db.prepare(`SELECT * FROM image_assets WHERE kind = 'DISH' ORDER BY created_at, asset_id`).all() as Row[]).map(toAsset);
   }
@@ -227,7 +266,15 @@ export class ImageMetadataStore {
    * marks the intent COMPLETED. Call only after the object at `finalKey` exists
    * and was copied from a verified staging object.
    */
-  activateUpload(input: { uploadId: string; userId: string; finalKey: string; contentType: string; sizeBytes: number }): {
+  activateUpload(input: {
+    uploadId: string;
+    userId: string;
+    finalKey: string;
+    contentType: string;
+    sizeBytes: number;
+    /** If set, a NEW dish is refused once this many dishes exist (re-checked inside the transaction). */
+    maxDishes?: number;
+  }): {
     asset: ImageAsset;
     replacedKey: string | null;
   } {
@@ -253,6 +300,9 @@ export class ImageMetadataStore {
           .run(input.finalKey, input.contentType, input.sizeBytes, now, assetId);
         this.enqueueDeletionInternal(existing.bucket, existing.objectKey, 'replaced', now);
       } else {
+        if (intent.kind === 'DISH' && input.maxDishes !== undefined && this.countDishes() >= input.maxDishes) {
+          throw new MetadataError('DISH_LIMIT_REACHED');
+        }
         assetId = randomUUID();
         this.db
           .prepare(
